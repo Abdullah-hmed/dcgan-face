@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>GAN Generator Demo</title>
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+</head>
+<style>
+    body {
+        text-align: center;
+        font-family: sans-serif;
+    }
+    textarea {
+        margin-top: 8px;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid #ccc;
+        font-size: 14px;
+        resize: vertical;
+    }
+    canvas {
+        image-rendering: crisp-edges;
+    }
+
+</style>
+<body style="text-align: center; font-family: sans-serif;">
+    <h1>GAN Generator</h1>
+
+    <button onclick="run()">Generate</button>
+
+    <br><br>
+    <!-- Main canvas -->
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const latentDim = 100;
+        let session;
+
+        // load onnx model
+        async function initSession() {
+            if (!session) {
+                session = await ort.InferenceSession.create("face_generator.onnx", {
+                    executionProviders: ["wasm"],
+                });
+                console.log("onnx model loaded");
+            }
+        }
+
+        async function generateImage(session, latentDim, width, height) {
+            // 1. Make random latent input
+            const latent = new ort.Tensor(
+                "float32",
+                Float32Array.from({ length: latentDim }, () => Math.random() * 2 - 1), // [-1, 1]
+                [1, latentDim]
+            );
+
+            // 2. Run inference
+            const results = await session.run({ latent });
+            const output = results[session.outputNames[0]].data; // flat Float32Array
+            // Shape should be [1, C, H, W]
+            const C = 3; // change to 3 if you exported RGB
+            const H = height;
+            const W = width;
+
+            // 3. Convert to ImageData
+            const imgData = new ImageData(W, H);
+            for (let y = 0; y < H; y++) {
+                for (let x = 0; x < W; x++) {
+                    const idx = y * W + x;
+                    if (C === 1) {
+                        // grayscale → replicate to RGB
+                        let v = output[idx];
+                        v = Math.min(Math.max((v + 1) / 2, 0), 1) * 255; // scale from [-1,1] → [0,255]
+                        imgData.data[idx * 4 + 0] = v; // R
+                        imgData.data[idx * 4 + 1] = v; // G
+                        imgData.data[idx * 4 + 2] = v; // B
+                        imgData.data[idx * 4 + 3] = 255; // A
+                    } else {
+                        // RGB
+                        let r = output[0 * H * W + idx];
+                        let g = output[1 * H * W + idx];
+                        let b = output[2 * H * W + idx];
+                        r = Math.min(Math.max((r + 1) / 2, 0), 1) * 255;
+                        g = Math.min(Math.max((g + 1) / 2, 0), 1) * 255;
+                        b = Math.min(Math.max((b + 1) / 2, 0), 1) * 255;
+                        imgData.data[idx * 4 + 0] = r;
+                        imgData.data[idx * 4 + 1] = g;
+                        imgData.data[idx * 4 + 2] = b;
+                        imgData.data[idx * 4 + 3] = 255;
+                    }
+                }
+            }
+
+            return imgData;
+        }
+
+        async function run() {
+            
+            const imgData = await generateImage(session, 100, 64, 64);
+            
+            const canvas = document.getElementById("canvas");
+            const displaySize = 512; // upscale 64 → 256 for display
+            canvas.width = displaySize;
+            canvas.height = displaySize;
+            const ctx = canvas.getContext("2d");
+
+            ctx.imageSmoothingEnabled = false;
+
+            // Draw scaled
+            const tempCanvas = document.createElement("canvas");
+            tempCanvas.width = 64;
+            tempCanvas.height = 64;
+            tempCanvas.getContext("2d").putImageData(imgData, 0, 0);
+
+            ctx.drawImage(tempCanvas, 0, 0, displaySize, displaySize);
+        }
+        initSession();
+    </script>
+
+</body>
+</html>
