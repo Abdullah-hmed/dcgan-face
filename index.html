@@ -95,7 +95,7 @@
         }
 
         async function run() {
-            
+            await initSession();
             const imgData = await generateImage(session, 100, 64, 64);
             
             const canvas = document.getElementById("canvas");
